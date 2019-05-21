@@ -135,8 +135,6 @@ function initRC522()
                 print("Sending http request")
 
                 gpio.write(WorkTime.LED_BLUE, gpio.LOW)
-
-                --http://ecoinventions.ba/rfid/service.php
                 
                 http.post('http://' .. WorkTime.NodeJsServer,
                     'ChipId: ' .. node.chipid() .. '\r\n'
