@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.22.1/moment.min.js"></script>
+		<title>Rfid Manager</title>
+		<script>
+			var Request = function(action, payload) {
+				this.Action = action;
+				this.Payload = payload || null;
+			};
+			
+			var Service = function(url) {
+				this.Url = url;
+				
+				var self = this;
+				var ws = null;
+				var isStart = false;
+				
+				var responseHandlers = [];
+				
+				this.AttachResponseHandler = function(contextAction, handler) {
+					responseHandlers.push({
+						ContextAction: contextAction,
+						Handle: handler
+					});
+					
+					return this;
+				};
+				
+				this.GetResponseHandler = function(contextAction) {
+					for(var i in responseHandlers) {
+						if(responseHandlers[i].ContextAction == contextAction) {
+							return responseHandlers[i];
+						}
+					}
+					
+					return null;
+				};
+				
+				this.Start = function(callback) {
+					if(isStart) {
+						throw "Service has been already started";
+					}
+					
+					isStart = true;
+				
+					ws = new WebSocket('ws://' + this.Url);
+				
+					ws.onopen = function() {
+						callback(self);
+					};
+
+					ws.onmessage = function (evt) {
+						var response = JSON.parse(evt.data);
+						var responseHandler = self.GetResponseHandler(response.Context.Action);
+						
+						if(responseHandler != null) {
+							responseHandler.Handle(response.Payload, self);
+						}
+					};
+
+					ws.onclose = function() {};
+				};
+				
+				this.SendRequest = function(request) {
+					ws.send(JSON.stringify(request));
+				};
+				
+				return this;
+			};
+			
+			var TAGS = null;
+			
+			var getTagById = function(id) {
+				for(var i in TAGS) {
+					if(TAGS[i].Id == id) {
+						return TAGS[i];
+					}
+				}
+				
+				return null;
+			};
+			
+			var $entry = function(entry) {
+				var _tag = getTagById(entry.TagId);
+			
+				return $('<li />')
+					.addClass('entry')
+					.append($('<span />').addClass('name').append(_tag.Name))
+					.append($('<span />').addClass('time').append(moment(entry.Time, 'x').format('DD.MM.YYYY HH:mm:ss')))
+					.append($('<span />').addClass('dir').append(entry.Dir));
+			};
+			
+			$(document).ready(function() {
+				new Service('192.168.0.163:8080')
+					.AttachResponseHandler('GetEntries', function(entries) {
+						var $entries = $('.entries');
+					
+						$.each(entries.reverse(), function() {
+							$entries.append($entry(this));
+						});
+					})
+					.AttachResponseHandler('GetTags', function(tags, service) {
+						TAGS = tags;
+						
+						var $tags = $('.tags');
+						
+						$.each(tags, function() {
+							$tags
+								.append(
+									$('<li />')
+									.addClass('tag')
+									.addClass('id' + this.Id)
+									.addClass(this.CurrentDir == null ? 'OUT' : this.CurrentDir.Dir)
+									.append(this.Name)
+								);
+						});
+						
+						service.SendRequest(new Request('GetEntries'));
+					})
+					.AttachResponseHandler('TagModified', function(entry) {
+						$('.tag.id' + entry.TagId)
+							.removeClass('IN')
+							.removeClass('OUT')
+							.addClass(entry.Dir);
+							
+						$('.entries').prepend($entry(entry));
+					})
+					.Start(function(service) {
+						service.SendRequest(new Request('GetTags'));
+					});
+			});
+		</script>
+		<style>
+			body { font-family: 'Segoe UI'; }
+			ul, li { padding: 0; margin: 0; list-style-type: none; }
+			.tags { font-size: 35px; }
+			.tag {
+				float: left;
+				border: 2px solid;
+				margin: 5px;
+				width: 350px;
+				padding: 100px 0;
+				text-align: center;
+			}
+			.tag.IN { color: green; background: #e4ffe4; font-weight: bold; }
+			.tag.OUT { color: gray; }
+			.sectionTitle { margin: 20px 0px; font-size: 25px; }
+			.entry { clear: both; }
+			.entry span { float: left;  margin-right: 10px; }
+			.entry .name { width: 125px; }
+		</style>
+	</head>
+	<body>
+		<ul class="tags"></ul>
+		<div style="clear: both"></div>
+		<div class="sectionTitle">History</div>
+		<ul class="entries"></ul>
+	</body>
+</html>
